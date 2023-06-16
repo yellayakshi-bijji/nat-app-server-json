@@ -1,0 +1,307 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "AWS CF Template to create NAT Instance, App Instance, VPC, Subnet, Security Group, Route Table and Internet Gateway",
+    "Parameters": {
+      "AvailabilityZone": {
+        "Description": "select the Availability Zone for your Deployment",
+        "Type": "AWS::EC2::AvailabilityZone::Name"
+      }
+    },
+    "Mappings": {
+      "SubnetConfig": {
+        "VPC": {
+          "CIDR": "10.0.0.0/16"
+        },
+        "PublicSubnet": {
+          "CIDR": "10.0.1.0/24"
+        },
+        "PrivateSubnet": {
+          "CIDR": "10.0.2.0/24"
+        }
+      }
+    },
+    "Resources": {
+      "VPC": {
+        "Type": "AWS::EC2::VPC",
+        "Properties": {
+          "CidrBlock": {
+            "Fn::FindInMap": [
+              "SubnetConfig",
+              "VPC",
+              "CIDR"
+            ]
+          },
+          "Tags": [
+            {
+              "Key": "Name",
+              "Value": "nat_vpc"
+            }
+          ]
+        }
+      },
+      "InternetGateway": {
+        "Type": "AWS::EC2::InternetGateway"
+      },
+      "InternetGatewayAttachement": {
+        "Type": "AWS::EC2::VPCGatewayAttachment",
+        "Properties": {
+          "InternetGatewayId": {
+            "Ref": "InternetGateway"
+          },
+          "VpcId": {
+            "Ref": "VPC"
+          }
+        }
+      },
+      "PublicSubnet": {
+        "Type": "AWS::EC2::Subnet",
+        "Properties": {
+          "CidrBlock": {
+            "Fn::FindInMap": [
+              "SubnetConfig",
+              "PublicSubnet",
+              "CIDR"
+            ]
+          },
+          "AvailabilityZone": {"Ref": "AvailabilityZone"},
+          "VpcId": {"Ref": "VPC"},
+          "Tags": [
+            {
+              "Key": "Name",
+              "Value": "nat_publicsubnet"
+            }
+          ]
+        }
+      },
+      "PrivateSubnet": {
+        "Type": "AWS::EC2::Subnet",
+        "Properties": {
+          "CidrBlock": {
+            "Fn::FindInMap": [
+              "SubnetConfig",
+              "PrivateSubnet",
+              "CIDR"
+            ]
+          },
+          "AvailabilityZone": {"Ref": "AvailabilityZone"},
+          "VpcId": {"Ref": "VPC"},
+          "Tags": [
+            {
+              "Key": "Name",
+              "Value": "nat_privatesubnet"
+            }
+          ]
+        }
+      },
+      "PublicSubnetsRouteTable": {
+        "Type": "AWS::EC2::RouteTable",
+        "Properties": {
+          "VpcId": {"Ref": "VPC"},
+          "Tags": [
+            {
+              "Key": "Name",
+              "Value": "nat_public.rt"
+            }
+          ]
+        }
+      },
+      "PrivateSubnetsRouteTable": {
+        "Type": "AWS::EC2::RouteTable",
+        "Properties": {
+          "VpcId": {"Ref": "VPC"},
+          "Tags": [
+            {
+              "Key": "Name",
+              "Value": "nat_private.rt"
+            }
+          ]
+        }
+      },
+      "PublicRoute": {
+        "Type": "AWS::EC2::Route",
+        "DependsOn": "InternetGateway",
+        "Properties": {
+          "RouteTableId": {
+            "Ref": "PublicSubnetsRouteTable"
+          },
+          "DestinationCidrBlock": "0.0.0.0/0",
+          "GatewayId": {
+            "Ref": "InternetGateway"
+          }
+        }
+      },
+      "PrivateRoute": {
+        "Type": "AWS::EC2::Route",
+        "Properties": {
+          "RouteTableId": {
+            "Ref": "PrivateSubnetsRouteTable"
+          },
+          "DestinationCidrBlock": "0.0.0.0/0",
+          "InstanceId": {
+            "Ref": "NATInstance"
+          }
+        }
+      },
+      "AssociateRouteTableWithPublicSubnet": {
+        "Type": "AWS::EC2::SubnetRouteTableAssociation",
+        "Properties": {
+          "RouteTableId": {
+            "Ref": "PublicSubnetsRouteTable"
+          },
+          "SubnetId": {
+            "Ref": "PublicSubnet"
+          }
+        }
+      },
+      "AssociateRouteTableWithPrivateSubnet": {
+        "Type": "AWS::EC2::SubnetRouteTableAssociation",
+        "Properties": {
+          "RouteTableId": {
+            "Ref": "PrivateSubnetsRouteTable"
+          },
+          "SubnetId": {
+            "Ref": "PrivateSubnet"
+          }
+        }
+      },
+      "NATSecurityGroup": {
+        "Type": "AWS::EC2::SecurityGroup",
+        "Properties": {
+          "GroupDescription": "NAT security group",
+          "VpcId": {
+            "Ref": "VPC"
+          },
+          "SecurityGroupIngress": [
+            {
+              "IpProtocol": "tcp",
+              "FromPort": 22,
+              "ToPort": 22,
+              "CidrIp": "76.104.46.140/32"
+            },
+            {
+              "IpProtocol": "tcp",
+              "FromPort": 22,
+              "ToPort": 22,
+              "CidrIp": "70.106.221.84/32"
+            }
+          ],
+          "Tags": [
+            {
+              "Key": "Name",
+              "Value": "nat_sg1"
+            }
+          ]
+        }
+      },
+      "AppSecurityGroup": {
+        "Type": "AWS::EC2::SecurityGroup",
+        "Properties": {
+          "GroupDescription": "App security group",
+          "VpcId": {
+            "Ref": "VPC"
+          },
+          "SecurityGroupIngress": [
+            {
+              "IpProtocol": "tcp",
+              "FromPort": 22,
+              "ToPort": 22,
+              "CidrIp": "76.104.46.140/32"
+            }
+          ],
+          "Tags": [
+            {
+              "Key": "Name",
+              "Value": "nat_sg2"
+            }
+          ]
+        }
+      },
+      "NATInstance": {
+        "Type": "AWS::EC2::Instance",
+        "Properties": {
+          "InstanceType": "t2.micro",
+          "ImageId": "ami-0715c1897453cabd1",
+          "KeyName": "test_bijji",
+          "SourceDestCheck": false,
+          "NetworkInterfaces": [
+            {
+             "DeviceIndex":"0",
+              "SubnetId": {
+                "Ref": "PublicSubnet"
+              },
+              "GroupSet": [
+                {
+                  "Ref": "NATSecurityGroup"
+                }
+              ],
+              "AssociatePublicIpAddress": true
+            }
+          ],
+          "Tags": [
+            {
+              "Key": "Name",
+              "Value": "NATInstance"
+            }
+          ]
+        }
+      },
+      "AppInstance": {
+        "Type": "AWS::EC2::Instance",
+        "Properties": {
+          "InstanceType": "t2.micro",
+          "ImageId": "ami-0715c1897453cabd1",
+          "NetworkInterfaces": [
+            {
+             "DeviceIndex":"0",
+              "SubnetId": {
+                "Ref": "PrivateSubnet"
+              },
+              "GroupSet": [
+                {
+                  "Ref": "AppSecurityGroup"
+                }
+              ],
+              "AssociatePublicIpAddress": false
+            }
+          ],
+          "Tags": [
+            {
+              "Key": "Name",
+              "Value": "AppInstance"
+            }
+          ]
+        }
+      }},
+      "Outputs": {
+        "VpcId": {
+          "Value": {
+            "Ref": "VPC"
+          },
+          "Description": "The id of the created vpc"
+        },
+        "PublicSubnetId": {
+          "Value": {
+            "Ref": "PublicSubnet"
+          },
+          "Description": "The id of the created subnet"
+        },
+        "PrivateSubnetId": {
+          "Value": {
+            "Ref": "PrivateSubnet"
+          },
+          "Description": "The id of the created subnet"
+        },
+        "NATSecurityGroupId": {
+          "Value": {
+            "Ref": "NATSecurityGroup"
+          },
+          "Description": "The id of the created subnet"
+        },
+        "AppSecurityGroupId": {
+          "Value": {
+            "Ref": "AppSecurityGroup"
+          },
+          "Description": "The id of the created subnet"
+        }
+      }
+    }
